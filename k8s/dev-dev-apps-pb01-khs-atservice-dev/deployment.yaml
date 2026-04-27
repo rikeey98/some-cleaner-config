@@ -1,0 +1,43 @@
+apiVersion: "apps/v1"
+kind: "Deployment"
+metadata:
+  name: "pdep003--some-cleaner-dev"
+  labels:
+    productgroupid: "pdep003"
+    productid: "some-cleaner-dev"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: "pdep003--some-cleaner-dev"
+  template:
+    metadata:
+      labels:
+        app: "pdep003--some-cleaner-dev"
+        productgroupid: "pdep003"
+        productid: "some-cleaner-dev"
+      spec:
+        containers:
+        - name: "pdep003--some-cleaner-dev"
+          image: "artifact.samsungds.net/local-pdep003-docker/some-cleaner-dev:build-20260427.125959"
+          resources:
+            limits:
+              cpu: 0.1
+              memory: "1Gi"
+            requests:
+              cpu: 0.1
+              memory: "1Gi"
+            volumeMounts: []
+            env:
+            - name: "releaseTag"
+              value: "build-20260427.125959"
+            - name: "VITE_COOKIE_DOMAIN"
+              value: ".samsungds.net"
+            - name: "VITE_API_URL"
+              value: "https://at-dev.samsungds.net"
+            - name: "VITE_USE_MOCK"
+              value: "false"
+          imagePullSecrets:
+          - name: "pdep003--pdep003-secret"
+          volumes: []
+        
