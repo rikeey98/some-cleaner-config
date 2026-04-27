@@ -1,0 +1,20 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: pdep003--some-cleaner-dev-svc
+  labels:
+    app: pdep003--some-cleaner-dev
+    productgroupid: pdep003
+    productid: some-cleaner-dev
+    resourcetype: container
+    prometheus: prometheus--dks-dev-com02
+    type: nginx
+spec:
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort:80
+  selector:
+    app: pdep003--some-cleaner-dev
+  type: ClusterIP
