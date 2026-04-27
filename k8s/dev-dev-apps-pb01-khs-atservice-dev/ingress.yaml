@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pdep003--some-cleaner-dev-ing
+  labels:
+    productgroupid: pdep003
+    productid: some-cleaner-dev
+    app: pdep003--some-cleaner-dev
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: 'true'
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  rules:
+    - host: pdep003--some-cleaner-dev.khdevpb01.apps.dks.samsungds.net
+      http:
+        paths:
+          - path: /somecleaner(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: pdep003--some-cleaner-dev-svc
+                port:
+                  number: 80
+  tls: []
