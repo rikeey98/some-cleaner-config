@@ -1,5 +1,3 @@
-import java.text.SimpleDateFormat
-
 pipeline {
 
   agent {
@@ -12,11 +10,14 @@ pipeline {
 
   parameters {
     string(name: 'buildAgent', defaultValue: 'dev-docker-image-hub-agent', description: 'jenkins build Agent')
-    string(name: 'repo', defaultValue: 'https://github.samsungds.net/AT/some-cleaenr', description: 'repo')
+    string(name: 'repo', defaultValue: 'https://github.samsungds.net/AT/some-cleaner', description: 'repo')
     string(name: 'branch', defaultValue: 'dev', description: 'branch')
     string(name: 'imageRepoUrl', defaultValue: 'artifact.samsungds.net/local-pdep003-docker/some-cleaner-dev', description: 'imageRepoUrl')
     string(name: 'imageTag', defaultValue: '', description: 'imageTag')
     string(name: 'dockerFile', defaultValue: '', description: 'dockerFile')
+    string(name: 'viteApiUrl', defaultValue: 'https://at-dev.samsungds.net', description: 'Frontend Vite API URL')
+    string(name: 'viteCookieDomain', defaultValue: '.samsungds.net', description: 'Frontend cookie domain')
+    string(name: 'viteUseMock', defaultValue: 'false', description: 'Frontend mock mode')
     string(name: 'systemId', defaultValue:'', description: 'System Id')
     string(name: 'serviceId', defaultValue: '', description: 'ServiceId')
     string(name: 'systemServiceId', defaultValue: '', description: 'System Service Id')
@@ -29,74 +30,83 @@ pipeline {
   }
 
   stages {
-    // Checkout Stage : Checkout from Git Repository
     stage('Checkout') {
       steps {
         script {
           wrap([$class: 'MaskPasswordsBuildWrapper',
             varPasswordPairs: [
-            [password: githubUserId, var: 'githubUserId'],
-            [password: githubUserToken, var: 'githubUserToken']
+              [password: githubUserId, var: 'githubUserId'],
+              [password: githubUserToken, var: 'githubUserToken'],
             ]])
           {
-          try {
+            try {
+              sh '''
+              git_repo=$(echo "$repo" | sed 's#https://##')
+              git config --global --replace-all http.sslVerify false
+              git clone --branch "$branch" --depth=1 "https://${githubUserId}:${githubUserToken}@${git_repo}" .
+              '''
+            } catch (e) {
+              currentBuild.result = 'FAILED'
+              throw e
+            }
+          }
+        }
+      }
+    }
+
+    stage('Docker Build') {
+      steps {
+        echo '############################## Start Docker Build'
+        script {
+          wrap([$class: 'MaskPasswordsBuildWrapper',
+            varPasswordPairs: [
+              [password: artifactUserId, var: 'artifactUserId'],
+              [password: artifactUserToken, var: 'artifactUserToken'],
+            ]])
+          {
+            env.IMAGE_TAG = params.imageTag
+            env.IMAGE_LOC = "${params.imageRepoUrl}:${env.IMAGE_TAG}"
+            env.IMAGE_REPO_IMG = params.imageRepoUrl
+            env.IMAGE_REGISTRY = params.imageRepoUrl.tokenize('/')[0]
+            env.DOCKER_FILE = params.dockerFile
+            env.VITE_API_URL = params.viteApiUrl
+            env.VITE_COOKIE_DOMAIN = params.viteCookieDomain
+            env.VITE_USE_MOCK = params.viteUseMock
+
+            echo("==================\n TAG : ${env.IMAGE_TAG}\n=================")
+            echo("==================\n IMAGE_LOC : ${env.IMAGE_LOC}\n=================")
+            echo("==================\n DOCKER_FILE : ${env.DOCKER_FILE}\n=================")
+            echo("==================\n VITE_API_URL : ${env.VITE_API_URL}\n=================")
+            echo("==================\n VITE_COOKIE_DOMAIN : ${env.VITE_COOKIE_DOMAIN}\n=================")
+            echo("==================\n VITE_USE_MOCK : ${env.VITE_USE_MOCK}\n=================")
+
             sh '''
-            git_repo=$(echo $repo | sed 's/https:\\/\\///g')
-            git config --global --replace-all http.sslVerify false
-            git clone --branch ${branch} --depth=1 https://${githubUserId}:$(githubUserToken}@${git_repo} -- .
+            if [ -f "./docker/$DOCKER_FILE" ]; then
+              cp -f "./docker/$DOCKER_FILE" "./$DOCKER_FILE"
+            fi
+
+            docker login -u "$artifactUserId" -p "$artifactUserToken" "$IMAGE_REGISTRY"
+            docker build --no-cache --force-rm \
+              --build-arg VITE_API_URL="$VITE_API_URL" \
+              --build-arg VITE_COOKIE_DOMAIN="$VITE_COOKIE_DOMAIN" \
+              --build-arg VITE_USE_MOCK="$VITE_USE_MOCK" \
+              --file="$DOCKER_FILE" \
+              --tag="$IMAGE_LOC" \
+              .
+
+            docker push "$IMAGE_LOC"
+
+            docker tag "$IMAGE_LOC" "$IMAGE_REPO_IMG:latest"
+            docker push "$IMAGE_REPO_IMG:latest"
+
+            docker rmi "$IMAGE_REPO_IMG:latest" || true
+            docker rmi "$IMAGE_LOC" || true
             '''
-          } catch (e) {
-            currentBUild.result = "FAILED"
           }
         }
       }
     }
   }
-
-  // Docker build Stage : Docker build and Push
-  stage('Docker Build') {
-    steps {
-      echo "############################## Start Docker Build"
-      script {
-        wrap([$class: 'MaskPasswordsBuildWrapper',
-          varPasswordPairs: [
-          [password: artifactUserId, var: 'artifactUserId'],
-          [password: artifactUserToken, var: 'artifactUserToken']
-          ]])
-        {
-          env.IMAGE_TAG = params.imageTag
-          env.IMAGE_LOC = params.imageRepoUrl + ':' + env.IMAGE_TAG
-          env.IMAGE_REPO_IMG = params.imageRepoUrl
-          env.DOCKER_FILE = params.dockerFile
-          
-          echo("==================\n TAG : ${env.IMAGE_TAG}\n=================")
-          echo("==================\n IMAGE_LOC : ${env.IMAGE_LOC}\n=================")
-          echo("==================\n DOCKER_FILE : ${env.DOCKER_FILE}\n=================")i
-          
-          sh '''
-          if [ -f ./docker/$DOCKER_FILE ]; then
-          cp -f ./docker/$DOCKER_FILE ./$DOCKER_FILE
-          fi
-          
-          docker login -u $artifactUserId -p $artifactUserToken $IMAGE_REPO_IMG
-          docker build --no-cache --force-rm --file=$DOCKER_FILE --tag=$IMAGE_LOC .
-          
-          # Docker push
-          docker push $IMAGE_LOC
-          
-          docker tag $IMAGE_LOC $IMAGE_REPO_IMG:latest
-          docker push $IAMGE_REPO_IMG:latest
-          
-          # Docker Image Delete
-          docker rmi $IMAGE_REPO_IMG:latest
-          docker rmi $IMAGE_LOC
-          '''
-        
-          }
-        }
-      }
-    }
-  } //end stages
 
   post {
     always {
@@ -104,14 +114,12 @@ pipeline {
     }
     success {
       script {
-      currentBuild.result = 'SUCCESS'
+        currentBuild.result = 'SUCCESS'
       }
-      echo "=====================\n success \n======================"
+      echo '=====================\n success \n======================'
     }
     failure {
-      echo "=====================\n failure \n======================"
+      echo '=====================\n failure \n======================'
     }
   }
 }
-
-
