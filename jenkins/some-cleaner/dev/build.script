@@ -1,0 +1,117 @@
+import java.text.SimpleDateFormat
+
+pipeline {
+
+agent {
+label params.buildAgent
+}
+
+options {
+skipDefaultCheckout() // 기본 checkout 단계 건너뛰기
+}
+
+parameters {
+string(name: 'buildAgent', defaultValue: 'dev-docker-image-hub-agent', description: 'jenkins build Agent')
+string(name: 'repo', defaultValue: 'https://github.samsungds.net/AT/some-cleaenr', description: 'repo')
+string(name: 'branch', defaultValue: 'dev', description: 'branch')
+string(name: 'imageRepoUrl', defaultValue: 'artifact.samsungds.net/local-pdep003-docker/some-cleaner-dev', description: 'imageRepoUrl')
+string(name: 'imageTag', defaultValue: '', description: 'imageTag')
+string(name: 'dockerFile', defaultValue: '', description: 'dockerFile')
+string(name: 'systemId', defaultValue:'', description: 'System Id')
+string(name: 'serviceId', defaultValue: '', description: 'ServiceId')
+string(name: 'systemServiceId', defaultValue: '', description: 'System Service Id')
+string(name: 'buildJobId', defaultValue: '', description: 'Build Job Id')
+string(name: 'buildJobHistoryId', defaultValue: '', description: 'Build Job History Id')
+password(name: 'artifactUserId', defaultValue: '', description: 'Artifact User ID')
+password(name: 'artifactUserToken', defaultValue: '', description: 'Artifact User Token')
+password(name: 'githubUserId', defaultValue: '', description: 'Github User ID')
+password(name: 'githubUserToken', defaultValue: '', description: 'Github User Token')i
+}
+
+stages {
+// Checkout Stage : Checkout from Git Repository
+stage('Checkout')
+steps {
+script {
+wrap([$class: 'MaskPasswordsBuildWrapper',
+varPasswordPairs: [
+[password: githubUserId, var: 'githubUserId'],
+[password: githubUserToken, var: 'githubUserToken']
+]])
+{
+try {
+sh '''
+git_repo=$(echo $repo | sed 's/https:\\/\\///g')
+git config --global --replace-all http.sslVerify false
+git clone --branch ${branch} --depth=1 https://${githubUserId}:$(githubUserToken}@${git_repo} -- .
+'''
+} catch (e) {
+currentBUild.result = "FAILED"
+}
+}
+}
+}
+}
+
+// Docker build Stage : Docker build and Push
+stage('Docker Build') {
+steps {
+echo "############################## Start Docker Build"
+script {
+wrap([$class: 'MaskPasswordsBuildWrapper',
+varPasswordPairs: [
+[password: artifactUserId, var: 'artifactUserId'],
+[password: artifactUserToken, var: 'artifactUserToken']
+]])
+{
+env.IMAGE_TAG = params.imageTag
+env.IMAGE_LOC = params.imageRepoUrl + ':' + env.IMAGE_TAG
+env.IMAGE_REPO_IMG = params.imageRepoUrl
+env.DOCKER_FILE = params.dockerFile
+
+echo("==================\n TAG : ${env.IMAGE_TAG}\n=================")
+echo("==================\n IMAGE_LOC : ${env.IMAGE_LOC}\n=================")
+echo("==================\n DOCKER_FILE : ${env.DOCKER_FILE}\n=================")i
+
+sh '''
+if [ -f ./docker/$DOCKER_FILE ]; then
+cp -f ./docker/$DOCKER_FILE ./$DOCKER_FILE
+fi
+
+docker login -u $artifactUserId -p $artifactUserToken $IMAGE_REPO_IMG
+docker build --no-cache --force-rm --file=$DOCKER_FILE --tag=$IMAGE_LOC .
+
+# Docker push
+docker push $IMAGE_LOC
+
+docker tag $IMAGE_LOC $IMAGE_REPO_IMG:latest
+docker push $IAMGE_REPO_IMG:latest
+
+# Docker Image Delete
+docker rmi $IMAGE_REPO_IMG:latest
+docker rmi $IMAGE_LOC
+'''
+
+}
+}
+}
+}
+} //end stages
+
+post {
+always {
+cleanWs()
+}
+success {
+script {
+currentBuild.result = 'SUCCESS'
+}
+echo "=====================\n success \n======================"
+}
+failure {
+echo "=====================\n failure \n======================"
+}
+}
+}
+
+
